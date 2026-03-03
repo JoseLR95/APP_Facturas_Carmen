@@ -146,7 +146,7 @@ def check_password():
     password = st.text_input("", type="password", placeholder="Introduce la contraseña", label_visibility="collapsed")
 
     if st.button("Acceder", use_container_width=True):
-        if password == st.secrets["PASSWORD"]:
+        if password.strip() == st.secrets["PASSWORD"].strip():
             st.session_state.authenticated = True
             st.rerun()
         else:
@@ -161,42 +161,42 @@ if not check_password():
 # FUNCIONES DE PROCESAMIENTO
 # ===========================================================================
 
-def cargar_excel(excel_bytes, hoja, fila_inicio=2):
+def cargar_excel(excel_bytes, hoja=None, fila_inicio=2):
     wb = openpyxl.load_workbook(excel_bytes, data_only=True)
-    ws = wb[hoja]
+    ws = wb.active  # una sola pestaña
 
     filas = []
     for fila in ws.iter_rows(min_row=fila_inicio, values_only=True):
-        codigo = fila[6]  # Columna G
+        codigo = fila[4]  # Columna E
         if codigo is None:
             continue
         codigo = str(codigo).strip()
-        col_c  = str(fila[2]).strip() if fila[2] is not None else ""
-        col_d  = str(fila[3]).strip() if fila[3] is not None else ""
-        col_e  = str(fila[4]).strip() if fila[4] is not None else ""
-        col_h  = str(fila[7]).strip() if fila[7] is not None else ""
-        filas.append((codigo, col_c, col_d, col_e, col_h))
+        col_b  = str(fila[1]).strip() if fila[1] is not None else ""  # Columna B
+        col_c  = str(fila[2]).strip() if fila[2] is not None else ""  # Columna C
+        col_d  = str(fila[3]).strip() if fila[3] is not None else ""  # Columna D
+        col_f  = str(fila[5]).strip() if fila[5] is not None else ""  # Columna F (DNIs)
+        filas.append((codigo, col_b, col_c, col_d, col_f))
 
     conteo_excel     = Counter(f[0] for f in filas)
     duplicados_excel = {cod for cod, cnt in conteo_excel.items() if cnt > 1}
 
     mapeo = {}
-    for codigo, col_c, col_d, col_e, col_h in filas:
+    for codigo, col_b, col_c, col_d, col_f in filas:
         if codigo not in mapeo:
-            mapeo[codigo] = (col_c, col_d, col_e, col_h)
+            mapeo[codigo] = (col_b, col_c, col_d, col_f)
 
     mapeo_duplicados = {}
-    for codigo, col_c, col_d, col_e, col_h in filas:
+    for codigo, col_b, col_c, col_d, col_f in filas:
         if codigo in duplicados_excel:
             if codigo not in mapeo_duplicados:
                 mapeo_duplicados[codigo] = []
-            mapeo_duplicados[codigo].append((col_c, col_d, col_e, col_h))
+            mapeo_duplicados[codigo].append((col_b, col_c, col_d, col_f))
 
     return mapeo, duplicados_excel, mapeo_duplicados
 
 
-def extraer_dnis_celda(col_h):
-    return [d.strip().upper() for d in re.split(r'[\s/\-]+', col_h) if d.strip()]
+def extraer_dnis_celda(col_f):
+    return [d.strip().upper() for d in re.split(r'[\s/\-]+', col_f) if d.strip()]
 
 def normalizar_dni(dni):
     if re.match(r'^0\d{8}[A-Z]$', dni):
@@ -240,7 +240,7 @@ def sanitizar_nombre(nombre):
     return re.sub(r'[\\/*?:"<>|]', "", nombre).strip()
 
 
-def procesar_facturas(pdf_files, excel_bytes, hoja="RECARGAS", fila_inicio=2):
+def procesar_facturas(pdf_files, excel_bytes, fila_inicio=2):
     logs  = []
     stats = {"unicos": 0, "repetidos_pdf": 0, "duplicados_resueltos": 0,
              "duplicados_no_resueltos": 0, "no_encontrados": 0, "anexos": 0}
@@ -250,7 +250,7 @@ def procesar_facturas(pdf_files, excel_bytes, hoja="RECARGAS", fila_inicio=2):
 
     # Cargar Excel
     try:
-        mapeo, duplicados_excel, mapeo_duplicados = cargar_excel(excel_bytes, hoja, fila_inicio)
+        mapeo, duplicados_excel, mapeo_duplicados = cargar_excel(excel_bytes, fila_inicio=fila_inicio)
         log(f"Excel cargado — {len(mapeo)} códigos, {len(duplicados_excel)} duplicados", "info")
     except Exception as e:
         log(f"Error cargando Excel: {e}", "err")
@@ -315,13 +315,13 @@ def procesar_facturas(pdf_files, excel_bytes, hoja="RECARGAS", fila_inicio=2):
             nuevo_nombre = sanitizar_nombre(f"{codigo}-No encontrado") + ".pdf"
             stats["no_encontrados"] += 1
         elif total == 1:
-            col_c, col_d, col_e, _ = mapeo[codigo]
-            partes = [p for p in [col_c, col_d, col_e] if p]
+            col_b, col_c, col_d, _ = mapeo[codigo]
+            partes = [p for p in [col_b, col_c, col_d] if p]
             nuevo_nombre = sanitizar_nombre("-".join(partes)) + ".pdf"
             stats["unicos"] += 1
         else:
-            col_c, col_d, col_e, _ = mapeo[codigo]
-            partes = [p for p in [col_c, col_d, col_e] if p]
+            col_b, col_c, col_d, _ = mapeo[codigo]
+            partes = [p for p in [col_b, col_c, col_d] if p]
             nuevo_nombre = sanitizar_nombre("-".join(partes)) + f"-{n}.pdf"
             stats["repetidos_pdf"] += 1
 
@@ -341,10 +341,10 @@ def procesar_facturas(pdf_files, excel_bytes, hoja="RECARGAS", fila_inicio=2):
             dnis_anexo   = [normalizar_dni(d) for d in anexos[num_factura]]
             filas_codigo = mapeo_duplicados.get(codigo, [])
 
-            for col_c, col_d, col_e, col_h in filas_codigo:
-                dnis_excel = [normalizar_dni(d) for d in extraer_dnis_celda(col_h)]
+            for col_b, col_c, col_d, col_f in filas_codigo:
+                dnis_excel = [normalizar_dni(d) for d in extraer_dnis_celda(col_f)]
                 if any(dni in dnis_excel for dni in dnis_anexo):
-                    partes = [p for p in [col_c, col_d, col_e] if p]
+                    partes = [p for p in [col_b, col_c, col_d] if p]
                     nuevo_nombre = sanitizar_nombre("-".join(partes)) + ".pdf"
                     stats["duplicados_resueltos"] += 1
                     log(f"  ✓ DNI coincide → {nuevo_nombre}", "ok")
@@ -379,11 +379,7 @@ excel_file = st.file_uploader("", type=["xlsx"], key="excel", label_visibility="
 st.markdown("<div class='block-label'>2 · PDFs de facturas y anexos</div>", unsafe_allow_html=True)
 pdf_files = st.file_uploader("", type=["pdf"], accept_multiple_files=True, key="pdfs", label_visibility="collapsed")
 
-col1, col2 = st.columns(2)
-with col1:
-    hoja = st.text_input("Hoja del Excel", value="RECARGAS")
-with col2:
-    fila_inicio = st.number_input("Fila de inicio (datos)", min_value=1, value=2)
+fila_inicio = st.number_input("Fila de inicio (datos)", min_value=1, value=2)
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -395,7 +391,7 @@ if st.button("▶ Procesar facturas", use_container_width=True):
     else:
         with st.spinner("Procesando..."):
             zip_path, logs, stats = procesar_facturas(
-                pdf_files, excel_file, hoja=hoja, fila_inicio=int(fila_inicio)
+                pdf_files, excel_file, fila_inicio=int(fila_inicio)
             )
 
         if zip_path:
