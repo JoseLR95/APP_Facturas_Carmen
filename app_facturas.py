@@ -26,9 +26,7 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;600&display=swap');
 
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
-
 .stApp { background: #0f0f0f; color: #e8e8e8; }
-
 h1 {
     font-family: 'DM Mono', monospace !important;
     font-size: 1.6rem !important;
@@ -36,7 +34,6 @@ h1 {
     letter-spacing: -0.02em;
     margin-bottom: 0 !important;
 }
-
 .subtitle {
     font-family: 'DM Mono', monospace;
     font-size: 0.8rem;
@@ -44,7 +41,6 @@ h1 {
     margin-top: 0.2rem;
     margin-bottom: 2rem;
 }
-
 .block-label {
     font-family: 'DM Mono', monospace;
     font-size: 0.72rem;
@@ -53,7 +49,6 @@ h1 {
     letter-spacing: 0.1em;
     margin-bottom: 0.3rem;
 }
-
 .stat-box {
     background: #1a1a1a;
     border: 1px solid #2a2a2a;
@@ -61,7 +56,6 @@ h1 {
     padding: 1rem 1.2rem;
     text-align: center;
 }
-
 .stat-num {
     font-family: 'DM Mono', monospace;
     font-size: 2rem;
@@ -69,7 +63,6 @@ h1 {
     color: #f0e040;
     line-height: 1;
 }
-
 .stat-label {
     font-size: 0.72rem;
     color: #666;
@@ -77,7 +70,6 @@ h1 {
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
-
 .log-box {
     background: #111;
     border: 1px solid #222;
@@ -90,18 +82,15 @@ h1 {
     overflow-y: auto;
     line-height: 1.7;
 }
-
 .log-box .ok   { color: #6fcf97; }
 .log-box .warn { color: #f2994a; }
 .log-box .err  { color: #eb5757; }
 .log-box .info { color: #56ccf2; }
-
 section[data-testid="stFileUploadDropzone"] {
     background: #1a1a1a !important;
     border: 1px dashed #333 !important;
     border-radius: 8px !important;
 }
-
 div[data-testid="stDownloadButton"] button {
     background: #f0e040 !important;
     color: #0f0f0f !important;
@@ -114,11 +103,9 @@ div[data-testid="stDownloadButton"] button {
     width: 100%;
     margin-top: 1rem;
 }
-
 div[data-testid="stDownloadButton"] button:hover { background: #fff176 !important; }
 .stProgress > div > div { background: #f0e040 !important; }
 hr { border-color: #1e1e1e !important; margin: 1.5rem 0 !important; }
-
 div[data-testid="stSelectbox"] > div {
     background: #1a1a1a !important;
     border: 1px solid #333 !important;
@@ -137,12 +124,10 @@ def check_password():
         st.session_state.authenticated = False
     if st.session_state.authenticated:
         return True
-
     st.markdown("<h1>📄 Gestión de Facturas</h1>", unsafe_allow_html=True)
     st.markdown("<div class='subtitle'>// Introduce la contraseña para acceder</div>", unsafe_allow_html=True)
     st.markdown("<div class='block-label'>Contraseña de acceso</div>", unsafe_allow_html=True)
     password = st.text_input("", type="password", placeholder="Introduce la contraseña", label_visibility="collapsed")
-
     if st.button("Acceder", use_container_width=True):
         if password.strip() == st.secrets["PASSWORD"].strip():
             st.session_state.authenticated = True
@@ -155,35 +140,29 @@ if not check_password():
     st.stop()
 
 # ===========================================================================
-# PÁGINA DE INICIO — SELECTOR
+# SELECTOR DE MÓDULO
 # ===========================================================================
 
 st.markdown("<h1>📄 Gestión de Facturas</h1>", unsafe_allow_html=True)
 st.markdown("<div class='subtitle'>// Selecciona el tipo de gestión</div>", unsafe_allow_html=True)
-
 st.markdown("<div class='block-label'>Módulo</div>", unsafe_allow_html=True)
 modulo = st.selectbox("", ["— Selecciona un módulo —", "Cheques", "Northgate"], label_visibility="collapsed")
-
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ===========================================================================
-# ================================================================
 # MÓDULO 1: CHEQUES
-# ================================================================
 # ===========================================================================
 
 if modulo == "Cheques":
 
     st.markdown("<div class='subtitle'>// Renombrado de facturas cheque gourmet</div>", unsafe_allow_html=True)
 
-    # --- Funciones Cheques ---
-
     def cargar_excel_cheques(excel_bytes, fila_inicio=2):
         wb = openpyxl.load_workbook(excel_bytes, data_only=True)
         ws = wb.active
         filas = []
         for fila in ws.iter_rows(min_row=fila_inicio, values_only=True):
-            codigo = fila[4]  # Columna E
+            codigo = fila[4]
             if codigo is None:
                 continue
             codigo = str(codigo).strip()
@@ -192,22 +171,18 @@ if modulo == "Cheques":
             col_d  = str(fila[3]).strip() if fila[3] is not None else ""
             col_f  = str(fila[5]).strip() if fila[5] is not None else ""
             filas.append((codigo, col_b, col_c, col_d, col_f))
-
         conteo_excel     = Counter(f[0] for f in filas)
         duplicados_excel = {cod for cod, cnt in conteo_excel.items() if cnt > 1}
-
         mapeo = {}
         for codigo, col_b, col_c, col_d, col_f in filas:
             if codigo not in mapeo:
                 mapeo[codigo] = (col_b, col_c, col_d, col_f)
-
         mapeo_duplicados = {}
         for codigo, col_b, col_c, col_d, col_f in filas:
             if codigo in duplicados_excel:
                 if codigo not in mapeo_duplicados:
                     mapeo_duplicados[codigo] = []
                 mapeo_duplicados[codigo].append((col_b, col_c, col_d, col_f))
-
         return mapeo, duplicados_excel, mapeo_duplicados
 
     def extraer_dnis_celda(col_f):
@@ -218,7 +193,7 @@ if modulo == "Cheques":
             return dni[1:]
         return dni
 
-    def extraer_texto_pdf_cheques(ruta_pdf):
+    def extraer_texto_cheques(ruta_pdf):
         texto = ""
         try:
             with pdfplumber.open(ruta_pdf) as pdf:
@@ -283,7 +258,7 @@ if modulo == "Cheques":
 
         for nombre_pdf in pdfs:
             ruta  = os.path.join(tmpdir, nombre_pdf)
-            texto = extraer_texto_pdf_cheques(ruta)
+            texto = extraer_texto_cheques(ruta)
             if es_anexo(texto):
                 num_factura = extraer_num_factura_anexo(texto)
                 dnis        = [normalizar_dni(d) for d in extraer_dnis_anexo(texto)]
@@ -311,11 +286,9 @@ if modulo == "Cheques":
             contador_vistos[codigo] = contador_vistos.get(codigo, 0) + 1
             n     = contador_vistos[codigo]
             total = conteo_pdfs[codigo]
-
             if codigo in duplicados_excel:
                 pendientes[nombre_pdf] = {"codigo": codigo, "num_factura": num_factura, "n": n}
                 continue
-
             if codigo not in mapeo:
                 nuevo_nombre = sanitizar_nombre(f"{codigo}-No encontrado") + ".pdf"
                 stats["no_encontrados"] += 1
@@ -329,7 +302,6 @@ if modulo == "Cheques":
                 partes = [p for p in [col_b, col_c, col_d] if p]
                 nuevo_nombre = sanitizar_nombre("-".join(partes)) + f"-{n}.pdf"
                 stats["repetidos_pdf"] += 1
-
             shutil.copy2(os.path.join(tmpdir, nombre_pdf), os.path.join(outdir, nuevo_nombre))
             log(f"✓ {nombre_pdf} → {nuevo_nombre}", "ok")
 
@@ -338,9 +310,7 @@ if modulo == "Cheques":
             num_factura = datos["num_factura"]
             n           = datos["n"]
             nuevo_nombre = None
-
             log(f"[DUP] {nombre_pdf} → código: {codigo}, factura: {num_factura}", "warn")
-
             if num_factura and num_factura in anexos:
                 dnis_anexo   = [normalizar_dni(d) for d in anexos[num_factura]]
                 filas_codigo = mapeo_duplicados.get(codigo, [])
@@ -352,30 +322,24 @@ if modulo == "Cheques":
                         stats["duplicados_resueltos"] += 1
                         log(f"  ✓ DNI coincide → {nuevo_nombre}", "ok")
                         break
-
             if not nuevo_nombre:
                 nuevo_nombre = sanitizar_nombre(f"{codigo}-Duplicado-{n}") + ".pdf"
                 stats["duplicados_no_resueltos"] += 1
                 log(f"  → {nuevo_nombre}", "warn")
-
             shutil.copy2(os.path.join(tmpdir, nombre_pdf), os.path.join(outdir, nuevo_nombre))
 
         zip_path = os.path.join(tempfile.mkdtemp(), "facturas_renombradas.zip")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for f in os.listdir(outdir):
                 zf.write(os.path.join(outdir, f), f)
-
         return zip_path, logs, stats
 
-    # --- UI Cheques ---
+    # UI Cheques
     st.markdown("<div class='block-label'>1 · Fichero Excel</div>", unsafe_allow_html=True)
     excel_file = st.file_uploader("", type=["xlsx"], key="excel_cheques", label_visibility="collapsed")
-
     st.markdown("<div class='block-label'>2 · PDFs de facturas y anexos</div>", unsafe_allow_html=True)
     pdf_files = st.file_uploader("", type=["pdf"], accept_multiple_files=True, key="pdfs_cheques", label_visibility="collapsed")
-
     fila_inicio = st.number_input("Fila de inicio (datos)", min_value=1, value=2, key="fila_cheques")
-
     st.markdown("<hr>", unsafe_allow_html=True)
 
     if st.button("▶ Procesar facturas Cheques", use_container_width=True):
@@ -386,7 +350,6 @@ if modulo == "Cheques":
         else:
             with st.spinner("Procesando..."):
                 zip_path, logs, stats = procesar_cheques(pdf_files, excel_file, fila_inicio=int(fila_inicio))
-
             if zip_path:
                 st.markdown("<hr>", unsafe_allow_html=True)
                 total = sum(v for k, v in stats.items() if k != "anexos")
@@ -404,20 +367,17 @@ if modulo == "Cheques":
                             <div class='stat-num'>{stats[key]}</div>
                             <div class='stat-label'>{label}</div>
                         </div>""", unsafe_allow_html=True)
-
                 st.markdown(
                     f"<br><div style='text-align:center;font-family:DM Mono,monospace;font-size:0.8rem;color:#555'>"
                     f"TOTAL: <span style='color:#f0e040'>{total}</span> · "
                     f"ANEXOS IGNORADOS: <span style='color:#555'>{stats['anexos']}</span></div>",
                     unsafe_allow_html=True)
-
                 st.markdown("<br><div class='block-label'>Log</div>", unsafe_allow_html=True)
                 log_html = ""
                 for msg, tipo in logs:
                     css = {"ok": "ok", "warn": "warn", "err": "err", "info": "info"}.get(tipo, "")
                     log_html += f"<div class='{css}'>{msg}</div>"
                 st.markdown(f"<div class='log-box'>{log_html}</div>", unsafe_allow_html=True)
-
                 with open(zip_path, "rb") as f:
                     st.download_button(
                         label="⬇ Descargar ZIP con facturas renombradas",
@@ -427,21 +387,17 @@ if modulo == "Cheques":
                     )
 
 # ===========================================================================
-# ================================================================
 # MÓDULO 2: NORTHGATE
-# ================================================================
 # ===========================================================================
 
 elif modulo == "Northgate":
 
     st.markdown("<div class='subtitle'>// Extracción de nº de pedido en facturas Northgate</div>", unsafe_allow_html=True)
 
-    # --- Funciones Northgate ---
-
-    PATRON_CE_GUION  = r'\bCE-\d{4}-\d{10}\b'
-    PATRON_CE_BARRA  = r'\bCE/\d{4}/\d{10}\b'
-    PATRON_SC        = r'\bSC-\d{6}-[A-Z]{2}_[A-Z]{3,6}-\d{2}\b'
-    PATRON_MATRICULA = r'\b\d{4}-[A-Z]{3}\b'
+    PATRON_CE_GUION   = r'\bCE-\d{4}-\d{10}\b'
+    PATRON_CE_BARRA   = r'\bCE/\d{4}/\d{10}\b'
+    PATRON_SC_NG      = r'\bSC-\d{6}-[A-Z]{2}_[A-Z]{3,6}-\d{2}\b'
+    PATRON_MATRICULA  = r'\b\d{4}-[A-Z]{3}\b'
     PATRON_FACTURA_NG = r'N[oº°]\s*FACTURA\s+([A-Z]\d+)'
 
     def normalizar_matricula_ng(codigo):
@@ -492,20 +448,20 @@ elif modulo == "Northgate":
         match = re.search(PATRON_FACTURA_NG, texto)
         return match.group(1).strip() if match else None
 
-    def extraer_codigos_de_linea_ng(linea):
+    def extraer_codigos_linea_ng(linea):
         codigos = []
         codigos += re.findall(PATRON_CE_GUION, linea)
         codigos += re.findall(PATRON_CE_BARRA, linea)
-        codigos += re.findall(PATRON_SC, linea)
+        codigos += re.findall(PATRON_SC_NG, linea)
         codigos += re.findall(PATRON_MATRICULA, linea)
         return list(dict.fromkeys(codigos))
 
-    def extraer_lineas_facturacion_ng(texto):
+    def extraer_lineas_ng(texto):
         lineas = []
         for linea in texto.splitlines():
             if "FACTURACI" in linea.upper() and "CONTRATO" in linea.upper():
                 lineas.append(linea)
-            elif re.search(PATRON_SC, linea):
+            elif re.search(PATRON_SC_NG, linea):
                 lineas.append(linea)
         return lineas
 
@@ -517,13 +473,13 @@ elif modulo == "Northgate":
         return None
 
     def buscar_po_en_linea_ng(linea, mapeo_a, mapeo_b, mapeo_c):
-        codigos = extraer_codigos_de_linea_ng(linea)
+        codigos = extraer_codigos_linea_ng(linea)
         for codigo in codigos:
             valor_d = buscar_valor_d_ng(codigo, mapeo_a, mapeo_b, mapeo_c)
             if valor_d:
-                codigo_rep = next((c for c in codigos if re.match(PATRON_SC, c)), codigos[0])
+                codigo_rep = next((c for c in codigos if re.match(PATRON_SC_NG, c)), codigos[0])
                 return codigo_rep, valor_d
-        codigo_rep = next((c for c in codigos if re.match(PATRON_SC, c)), codigos[0] if codigos else "")
+        codigo_rep = next((c for c in codigos if re.match(PATRON_SC_NG, c)), codigos[0] if codigos else "")
         return codigo_rep, None
 
     def crear_pagina_resumen_ng(num_factura, filas):
@@ -582,7 +538,7 @@ elif modulo == "Northgate":
             log(f"Excel cargado correctamente", "info")
         except Exception as e:
             log(f"Error cargando Excel: {e}", "err")
-            return None, None, logs, stats
+            return None, logs, stats
 
         tmpdir = tempfile.mkdtemp()
         for f in pdf_files:
@@ -593,7 +549,7 @@ elif modulo == "Northgate":
         pdfs = sorted([f for f in os.listdir(tmpdir) if f.lower().endswith(".pdf")])
         log(f"{len(pdfs)} PDFs recibidos", "info")
 
-        outdir_gest  = tempfile.mkdtemp()
+        outdir_gest   = tempfile.mkdtemp()
         outdir_nogest = tempfile.mkdtemp()
         resultados    = {}
         no_gestionadas = []
@@ -601,9 +557,8 @@ elif modulo == "Northgate":
         for nombre_pdf in pdfs:
             ruta  = os.path.join(tmpdir, nombre_pdf)
             texto = extraer_texto_ng(ruta)
-
             num_factura        = extraer_numero_factura_ng(texto)
-            lineas_facturacion = extraer_lineas_facturacion_ng(texto)
+            lineas_facturacion = extraer_lineas_ng(texto)
 
             if not num_factura:
                 num_factura = nombre_pdf.replace(".PDF", "").replace(".pdf", "")
@@ -635,7 +590,7 @@ elif modulo == "Northgate":
                 shutil.copy2(ruta, os.path.join(outdir_nogest, nombre_pdf))
                 log(f"  → Sin PO, movido a No gestionadas", "warn")
 
-        # Crear Excel de salida
+        # Crear Excel
         wb = Workbook()
         wb.remove(wb.active)
         for num_factura, filas in sorted(resultados.items()):
@@ -648,31 +603,28 @@ elif modulo == "Northgate":
             ws_ng.append(["Nº Factura"])
             for nf in sorted(no_gestionadas):
                 ws_ng.append([nf])
-
         excel_buffer = io.BytesIO()
         wb.save(excel_buffer)
         excel_buffer.seek(0)
 
-        # Crear ZIP con PDFs gestionados + carpeta No gestionadas
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Crear ZIP único con PDFs + carpeta No gestionadas + Excel
+        zip_final = io.BytesIO()
+        with zipfile.ZipFile(zip_final, "w", zipfile.ZIP_DEFLATED) as zf:
             for f in os.listdir(outdir_gest):
                 zf.write(os.path.join(outdir_gest, f), f)
             for f in os.listdir(outdir_nogest):
                 zf.write(os.path.join(outdir_nogest, f), os.path.join("No gestionadas", f))
-        zip_buffer.seek(0)
+            zf.writestr("resultado_northgate.xlsx", excel_buffer.getvalue())
+        zip_final.seek(0)
 
-        return zip_buffer, excel_buffer, logs, stats
+        return zip_final, logs, stats
 
-    # --- UI Northgate ---
+    # UI Northgate
     st.markdown("<div class='block-label'>1 · Fichero Excel de referencias</div>", unsafe_allow_html=True)
     excel_ng = st.file_uploader("", type=["xlsx"], key="excel_ng", label_visibility="collapsed")
-
     st.markdown("<div class='block-label'>2 · PDFs de facturas</div>", unsafe_allow_html=True)
     pdfs_ng = st.file_uploader("", type=["pdf"], accept_multiple_files=True, key="pdfs_ng", label_visibility="collapsed")
-
     fila_ng = st.number_input("Fila de inicio (datos)", min_value=1, value=2, key="fila_ng")
-
     st.markdown("<hr>", unsafe_allow_html=True)
 
     if st.button("▶ Procesar facturas Northgate", use_container_width=True):
@@ -682,11 +634,9 @@ elif modulo == "Northgate":
             st.error("Sube al menos un PDF.")
         else:
             with st.spinner("Procesando..."):
-                zip_buf, excel_buf, logs, stats = procesar_northgate(pdfs_ng, excel_ng, fila_inicio=int(fila_ng))
-
-            if zip_buf:
+                zip_final, logs, stats = procesar_northgate(pdfs_ng, excel_ng, fila_inicio=int(fila_ng))
+            if zip_final:
                 st.markdown("<hr>", unsafe_allow_html=True)
-
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown(f"""
@@ -708,24 +658,15 @@ elif modulo == "Northgate":
                     log_html += f"<div class='{css}'>{msg}</div>"
                 st.markdown(f"<div class='log-box'>{log_html}</div>", unsafe_allow_html=True)
 
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    st.download_button(
-                        label="⬇ Descargar ZIP de PDFs",
-                        data=zip_buf,
-                        file_name="facturas_northgate.zip",
-                        mime="application/zip"
-                    )
-                with col_b:
-                    st.download_button(
-                        label="⬇ Descargar Excel resultado",
-                        data=excel_buf,
-                        file_name="resultado_northgate.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                st.download_button(
+                    label="⬇ Descargar ZIP completo (PDFs + Excel)",
+                    data=zip_final,
+                    file_name="northgate_completo.zip",
+                    mime="application/zip"
+                )
 
 # ===========================================================================
-# PANTALLA INICIAL (sin módulo seleccionado)
+# PANTALLA INICIAL
 # ===========================================================================
 
 else:
