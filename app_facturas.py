@@ -463,6 +463,9 @@ elif modulo == "Northgate":
                 lineas.append(linea)
             elif re.search(PATRON_SC_NG, linea):
                 lineas.append(linea)
+            elif re.search(PATRON_CE_BARRA, linea) or re.search(PATRON_CE_GUION, linea):
+                # Líneas con CE pero sin SC (ej: RTT - NOMBRE CE/xxxx/... matrícula)
+                lineas.append(linea)
         return lineas
 
     def buscar_valor_d_ng(codigo, mapeo_a, mapeo_b, mapeo_c):
@@ -477,9 +480,20 @@ elif modulo == "Northgate":
         for codigo in codigos:
             valor_d = buscar_valor_d_ng(codigo, mapeo_a, mapeo_b, mapeo_c)
             if valor_d:
-                codigo_rep = next((c for c in codigos if re.match(PATRON_SC_NG, c)), codigos[0])
+                # Preferir SC, si no matrícula, si no CE, si no el primero disponible
+                codigo_rep = (
+                    next((c for c in codigos if re.match(PATRON_SC_NG, c)), None) or
+                    next((c for c in codigos if re.match(PATRON_MATRICULA, c)), None) or
+                    next((c for c in codigos if re.match(PATRON_CE_BARRA, c) or re.match(PATRON_CE_GUION, c)), None) or
+                    codigos[0]
+                )
                 return codigo_rep, valor_d
-        codigo_rep = next((c for c in codigos if re.match(PATRON_SC_NG, c)), codigos[0] if codigos else "")
+        codigo_rep = (
+            next((c for c in codigos if re.match(PATRON_SC_NG, c)), None) or
+            next((c for c in codigos if re.match(PATRON_MATRICULA, c)), None) or
+            next((c for c in codigos if re.match(PATRON_CE_BARRA, c) or re.match(PATRON_CE_GUION, c)), None) or
+            (codigos[0] if codigos else "")
+        )
         return codigo_rep, None
 
     def crear_pagina_resumen_ng(num_factura, filas):
