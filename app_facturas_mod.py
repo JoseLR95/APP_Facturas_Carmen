@@ -312,16 +312,22 @@ if modulo == "Cheques":
             nuevo_nombre = None
             log(f"[DUP] {nombre_pdf} → código: {codigo}, factura: {num_factura}", "warn")
             if num_factura and num_factura in anexos:
-                dnis_anexo   = [normalizar_dni(d) for d in anexos[num_factura]]
+                dnis_anexo_norm = [normalizar_dni(d) for d in anexos[num_factura]]
+                log(f"  → Anexo encontrado. DNIs: {dnis_anexo_norm}", "info")
                 filas_codigo = mapeo_duplicados.get(codigo, [])
                 for col_b, col_c, col_d, col_f in filas_codigo:
                     dnis_excel = [normalizar_dni(d) for d in extraer_dnis_celda(col_f)]
-                    if any(dni in dnis_excel for dni in dnis_anexo):
+                    log(f"  Fila Excel — B:{col_b} C:{col_c} D:{col_d} | DNIs: {dnis_excel}", "info")
+                    if any(dni in dnis_excel for dni in dnis_anexo_norm):
                         partes = [p for p in [col_b, col_c, col_d] if p]
                         nuevo_nombre = sanitizar_nombre("-".join(partes)) + ".pdf"
                         stats["duplicados_resueltos"] += 1
                         log(f"  ✓ DNI coincide → {nuevo_nombre}", "ok")
                         break
+                if not nuevo_nombre:
+                    log(f"  ❌ Ningún DNI coincide en ninguna fila del Excel", "warn")
+            else:
+                log(f"  → No se encontró anexo para factura '{num_factura}'", "warn")
             if not nuevo_nombre:
                 nuevo_nombre = sanitizar_nombre(f"{codigo}-Duplicado-{n}") + ".pdf"
                 stats["duplicados_no_resueltos"] += 1
