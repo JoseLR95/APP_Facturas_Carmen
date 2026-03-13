@@ -146,7 +146,7 @@ if not check_password():
 st.markdown("<h1>📄 Gestión de Facturas</h1>", unsafe_allow_html=True)
 st.markdown("<div class='subtitle'>// Selecciona el tipo de gestión</div>", unsafe_allow_html=True)
 st.markdown("<div class='block-label'>Módulo</div>", unsafe_allow_html=True)
-modulo = st.selectbox("", ["— Selecciona un módulo —", "Cheques", "Northgate"], label_visibility="collapsed")
+modulo = st.selectbox("", ["— Selecciona un módulo —", "Cheques", "Northgate", "Imputaciones"], label_visibility="collapsed")
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ===========================================================================
@@ -681,6 +681,182 @@ elif modulo == "Northgate":
                     file_name="northgate_completo.zip",
                     mime="application/zip"
                 )
+
+
+# ===========================================================================
+# MÓDULO 3: Imputaciones
+# ===========================================================================
+
+elif modulo == "Imputaciones":
+
+    from openpyxl.styles import Border, Side
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import cm
+
+    st.markdown("<div class='subtitle'>// Búsqueda de órdenes de compra en facturas PDF</div>", unsafe_allow_html=True)
+
+    FILA_DATOS_PO = 17
+    COL_A_PO=1; COL_L_PO=12; COL_M_PO=13; COL_R_PO=18; COL_T_PO=20; COL_V_PO=22; COL_AA_PO=27
+
+    RE_PO_PAT = re.compile(r'\bPO[-/\s]?\d{6}[-/\s]?ES[_\-/\s][A-Z]{2,6}(?:[_\-][A-Z])?[-/\s]\d{2}\b')
+    RE_PO_STILL_PAT = re.compile(r'PEDIDO\s*PO-(\d{6}-ES[-_][A-Z]{2,6}(?:[-_][A-Z])?-\d{2})', re.IGNORECASE)
+    RE_SC_PAT = re.compile(r'\bSC-\d{6}-[A-Z]{2}_[A-Z]{2,6}(?:_[A-Z])?-\d{2}\b')
+    RE_MAT_PAT = re.compile(r'\b\d{4}-[A-Z]{3}\b')
+
+    def po3_norm(t):
+        return re.sub(r'[-/_\s]', '', str(t)).upper()
+
+    def po3_v(v):
+        return str(v).strip() if v is not None else ""
+
+    @st.cache_data(show_spinner="Cargando Excel interno…")
+    def po3_cargar_excel(excel_bytes):
+        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=True)
+        ws = wb.active
+        mp={};ms={};mi={}
+        for fila in ws.iter_rows(min_row=FILA_DATOS_PO, values_only=True):
+            po_raw=fila[COL_A_PO-1]
+            if not po_raw: continue
+            po_orig=po3_v(po_raw)
+            t_cod=po3_v(fila[COL_T_PO-1]).split()[0] if po3_v(fila[COL_T_PO-1]) else ""
+            col_b=" — ".join(p for p in [po3_v(fila[COL_R_PO-1]),t_cod,po3_v(fila[COL_V_PO-1])] if p)
+            costo=po3_v(fila[COL_M_PO-1])
+            datos=(po_orig,col_b,costo)
+            mp[po3_norm(po_orig)]=datos
+            aa=po3_v(fila[COL_AA_PO-1])
+            if aa: ms[aa]=datos
+            id2=po3_v(fila[COL_L_PO-1])
+            if id2 and ' ' not in id2 and 4<=len(id2)<=30:
+                mi[id2.upper()]=datos
+                sg=id2.replace('-','').upper()
+                if sg!=id2.upper(): mi[sg]=datos
+        wb.close()
+        return mp,ms,mi
+
+    def po3_buscar(linea,mp,ms,mi):
+        for m in RE_PO_PAT.finditer(linea):
+            c=po3_norm(m.group())
+            if c in mp: return ('PO',m.group(),mp[c])
+        for m in RE_PO_STILL_PAT.finditer(linea):
+            c=po3_norm('PO-'+m.group(1))
+            if c in mp: return ('PO','PO-'+m.group(1),mp[c])
+        for m in RE_SC_PAT.finditer(linea):
+            if m.group() in ms: return ('SC',m.group(),ms[m.group()])
+        for m in RE_MAT_PAT.finditer(linea):
+            for c in [m.group().upper(),m.group().replace('-','').upper()]:
+                if c in mi: return ('MAT',m.group(),mi[c])
+        return None
+
+    def po3_procesar_pdf(pdf_bytes,mp,ms,mi):
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            texto="\n".join(p.extract_text() or "" for p in pdf.pages)
+        num=""
+        for pat in [r'N[oº°\s]*FACTURA[:\s]+([A-Z0-9/\-]+)',r'Nº\s*FACTURA[:\s]+([A-Z0-9/\-]+)',
+                    r'Factura\s+(?:nº|N[º°])[:\s]*(\S+)',r'Factura\s+MN\s*/\s*(\S+)',r'INVOICE[:\s]+([A-Z0-9\-/]+)']:
+            m=re.search(pat,texto,re.IGNORECASE)
+            if m: num=m.group(1).strip().rstrip('/'); break
+        filas=[]; vistas=set()
+        for linea in texto.splitlines():
+            res=po3_buscar(linea.strip(),mp,ms,mi)
+            if not res: continue
+            tipo,ref,(po_orig,col_b,costo)=res
+            c=po3_norm(po_orig)
+            if c not in vistas:
+                vistas.add(c)
+                filas.append({"tipo":tipo,"ref":ref,"po":po_orig,"col_b":col_b,"costo":costo})
+        return num,filas
+
+    def po3_crear_excel(nombre_pdf,filas):
+        from openpyxl.styles import Border, Side
+        BORDE=Border(left=Side(style='thin',color='AAAAAA'),right=Side(style='thin',color='AAAAAA'),
+                     top=Side(style='thin',color='AAAAAA'),bottom=Side(style='thin',color='AAAAAA'))
+        wb=Workbook(); ws=wb.active; ws.title="Coincidencias"
+        ws.append(["Orden de compra (PO)","Centro de costos — Proyecto — Client ID","Costo por unidad"])
+        for cell in ws[1]:
+            cell.fill=PatternFill("solid",fgColor="1A1A1A"); cell.font=Font(bold=True,color="F0E040",size=10)
+            cell.alignment=Alignment(horizontal="center",vertical="center"); cell.border=BORDE
+        ws.row_dimensions[1].height=22
+        fp=PatternFill("solid",fgColor="F2F2F2"); fi=PatternFill("solid",fgColor="FFFFFF")
+        for idx,f in enumerate(filas,1):
+            ws.append([f["po"],f["col_b"],f["costo"]])
+            for cell in ws[ws.max_row]:
+                cell.fill=fp if idx%2==0 else fi; cell.border=BORDE; cell.alignment=Alignment(vertical="center")
+        ws.column_dimensions['A'].width=30; ws.column_dimensions['B'].width=65; ws.column_dimensions['C'].width=18
+        buf=io.BytesIO(); wb.save(buf); buf.seek(0); return buf.read()
+
+    def po3_crear_resumen(num,filas):
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import cm
+        buf=io.BytesIO()
+        doc=SimpleDocTemplate(buf,pagesize=A4,leftMargin=1.5*cm,rightMargin=1.5*cm,topMargin=1.5*cm,bottomMargin=1.5*cm)
+        styles=getSampleStyleSheet()
+        amarillo=colors.HexColor("#f0e040"); oscuro=colors.HexColor("#1a1a1a")
+        gris=colors.HexColor("#2a2a2a"); gris2=colors.HexColor("#222222"); borde=colors.HexColor("#555555")
+        ts=ParagraphStyle('t',parent=styles['Heading2'],textColor=amarillo,backColor=oscuro,spaceAfter=10,spaceBefore=0,leftIndent=6)
+        story=[Paragraph(f"Coincidencias — Factura {num or '(sin número)'}", ts), Spacer(1,0.3*cm)]
+        ancho=A4[0]-3*cm
+        datos=[["PO","Centro de costos — Proyecto — Client ID"]]
+        for f in filas: datos.append([f["po"],f["col_b"]])
+        tabla=Table(datos,colWidths=[0.35*ancho,0.65*ancho],repeatRows=1)
+        tabla.setStyle(TableStyle([
+            ("BACKGROUND",(0,0),(-1,0),oscuro),("TEXTCOLOR",(0,0),(-1,0),amarillo),
+            ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,0),8),
+            ("FONTSIZE",(0,1),(-1,-1),7),("TEXTCOLOR",(0,1),(-1,-1),colors.white),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1),[gris,gris2]),("GRID",(0,0),(-1,-1),0.4,borde),
+            ("VALIGN",(0,0),(-1,-1),"MIDDLE"),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
+        ]))
+        story.append(tabla); doc.build(story); buf.seek(0); return buf.read()
+
+    def po3_añadir_pagina(orig,pagina):
+        writer=PdfWriter()
+        for p in PdfReader(io.BytesIO(orig)).pages: writer.add_page(p)
+        for p in PdfReader(io.BytesIO(pagina)).pages: writer.add_page(p)
+        buf=io.BytesIO(); writer.write(buf); buf.seek(0); return buf.read()
+
+    # ── UI ──────────────────────────────────────────────────────────────────
+    st.markdown("<div class='block-label'>1 · Excel interno de órdenes de compra</div>", unsafe_allow_html=True)
+    excel_po=st.file_uploader("",type=["xlsx"],key="excel_po",label_visibility="collapsed")
+    st.markdown("<div class='block-label'>2 · PDFs de facturas</div>", unsafe_allow_html=True)
+    pdfs_po=st.file_uploader("",type=["pdf"],accept_multiple_files=True,key="pdfs_po",label_visibility="collapsed")
+
+    if excel_po and pdfs_po:
+        mp,ms,mi=po3_cargar_excel(excel_po.read())
+        st.success(f"✅ Excel cargado — **{len(mp):,}** POs · **{len(ms):,}** SCs · **{len(mi):,}** IDs")
+
+        if st.button("Procesar",key="btn_po",use_container_width=True):
+            log_lines=[]; stats={"total":0,"con_match":0,"sin_match":0,"por_PO":0,"por_SC":0,"por_MAT":0}
+            zip_buf=io.BytesIO()
+            prog=st.progress(0,text="Procesando…")
+            with zipfile.ZipFile(zip_buf,"w",zipfile.ZIP_DEFLATED) as zf:
+                for idx,pdf_file in enumerate(pdfs_po):
+                    prog.progress(idx/len(pdfs_po),text=f"Procesando {pdf_file.name}…")
+                    stats["total"]+=1
+                    try:
+                        pdf_bytes=pdf_file.read()
+                        num,filas=po3_procesar_pdf(pdf_bytes,mp,ms,mi)
+                        if not filas:
+                            stats["sin_match"]+=1
+                            log_lines.append(f'<span class="warn">⚠ {pdf_file.name} — sin coincidencias</span>')
+                            continue
+                        stats["con_match"]+=1
+                        for f in filas:
+                            stats[f"por_{f['tipo']}"]+=1
+                            log_lines.append(f'<span class="ok">✓ {pdf_file.name} [{f["tipo"]}] {f["ref"]} → {f["po"]}</span>')
+                        stem=pdf_file.name.rsplit('.',1)[0]
+                        zf.writestr(stem+".xlsx", po3_crear_excel(pdf_file.name,filas))
+                        zf.writestr(pdf_file.name, po3_añadir_pagina(pdf_bytes, po3_crear_resumen(num,filas)))
+                    except Exception as e:
+                        stats["sin_match"]+=1
+                        log_lines.append(f'<span class="err">✗ {pdf_file.name} — Error: {e}</span>')
+            prog.progress(1.0,text="¡Completado!")
+            c1,c2,c3,c4,c5=st.columns(5)
+            for col,label,key in [(c1,"PDFs total","total"),(c2,"Con match","con_match"),
+                                   (c3,"Sin match","sin_match"),(c4,"Match PO/SC","por_PO"),(c5,"Match MAT","por_MAT")]:
+                col.markdown(f"<div class='stat-box'><div class='stat-num'>{stats[key]}</div><div class='stat-label'>{label}</div></div>",unsafe_allow_html=True)
+            st.markdown("<div class='log-box'>"+"<br>".join(log_lines)+"</div>",unsafe_allow_html=True)
+            zip_buf.seek(0)
+            st.download_button("⬇️ Descargar ZIP (PDFs + Excel)",data=zip_buf.read(),
+                file_name="Imputaciones.zip",mime="application/zip",use_container_width=True)
 
 # ===========================================================================
 # PANTALLA INICIAL
