@@ -9,6 +9,7 @@ import pdfplumber
 import openpyxl
 from openpyxl import Workbook
 from pypdf import PdfReader, PdfWriter
+from openpyxl.styles import Font, PatternFill, Alignment
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
