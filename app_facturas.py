@@ -224,9 +224,9 @@ if modulo == "Cheques":
         return None
 
     def extraer_dnis_anexo(texto):
-        # DNI: 8 dígitos + letra | NIE: X/Y/Z + 7 dígitos + letra | NIE con 0 inicial: 0X/0Y/0Z + 7 dígitos + letra
+        # DNI 8 dígitos, DNI con 0 inicial (9 dígitos), NIE X/Y/Z, NIE con 0X/0Y/0Z
         return [m.upper() for m in re.findall(
-            r'\b(?:[0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z]|0[XYZ][0-9]{7}[A-Z])\b', texto
+            r'\b(?:[0-9]{8,9}[A-Z]|[XYZ][0-9]{7}[A-Z]|0[XYZ][0-9]{7}[A-Z])\b', texto
         )]
 
     def sanitizar_nombre(nombre):
