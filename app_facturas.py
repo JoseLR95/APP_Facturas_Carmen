@@ -592,16 +592,25 @@ elif modulo == "Northgate":
                     log(f"  ✓ {codigo_rep} → {valor_po}", "ok")
                 else:
                     log(f"  ❌ {codigo_rep} → NO ENCONTRADO", "warn")
-
+            
             if filas:
                 resultados[num_factura] = filas
                 stats["gestionadas"] += 1
-                nombre_nuevo = nombre_pdf.replace(".PDF", "_modificado.pdf").replace(".pdf", "_modificado.pdf")
+
+                # Obtener POs únicos para el nombre del archivo
+                pos_unicas = list(dict.fromkeys(valor for _, valor in filas))
+                sufijo_po = "_".join(pos_unicas)
+                # Limpiar caracteres no válidos en nombres de archivo
+                sufijo_po = re.sub(r'[\\/*?:"<>|]', "_", sufijo_po)
+
+                nombre_nuevo = f"{sufijo_po}.pdf"  # ← renombrado con el/los PO(s)
+
                 try:
                     añadir_pagina_ng(ruta, os.path.join(outdir_gest, nombre_nuevo), num_factura, filas)
                     log(f"  → PDF guardado: {nombre_nuevo}", "ok")
                 except Exception as e:
                     log(f"  [ERROR] PDF: {e}", "err")
+
             else:
                 no_gestionadas.append(num_factura)
                 stats["no_gestionadas"] += 1
