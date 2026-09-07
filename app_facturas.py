@@ -148,7 +148,7 @@ if not check_password():
 st.markdown("<h1>📄 Gestión de Facturas</h1>", unsafe_allow_html=True)
 st.markdown("<div class='subtitle'>// Selecciona el tipo de gestión</div>", unsafe_allow_html=True)
 st.markdown("<div class='block-label'>Módulo</div>", unsafe_allow_html=True)
-modulo = st.selectbox("", ["— Selecciona un módulo —", "Cheques", "Northgate", "Imputaciones"], label_visibility="collapsed")
+modulo = st.selectbox("", ["— Selecciona un módulo —", "Cheques", "Northgate", "Imputaciones", "FRADE"], label_visibility="collapsed")
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ===========================================================================
