@@ -4,9 +4,11 @@ import io
 import shutil
 import tempfile
 import zipfile
+import datetime as dt
 import streamlit as st
 import pdfplumber
 import openpyxl
+import xlrd
 from openpyxl import Workbook
 from pypdf import PdfReader, PdfWriter
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -15,7 +17,6 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from collections import Counter
-
 # ===========================================================================
 # ESTILOS
 # ===========================================================================
@@ -867,6 +868,248 @@ elif modulo == "Imputaciones":
             zip_buf.seek(0)
             st.download_button("⬇️ Descargar ZIP (PDFs + Excel)",data=zip_buf.read(),
                 file_name="Imputaciones.zip",mime="application/zip",use_container_width=True)
+
+
+# ===========================================================================
+# MÓDULO 4: FRADE
+# ===========================================================================
+ 
+elif modulo == "FRADE":
+ 
+    st.markdown("<div class='subtitle'>// Cruce de pedidos SAP, códigos de cliente y maestro de clientes en facturas</div>", unsafe_allow_html=True)
+ 
+    FRADE_FILA_SAP     = 2   # Datos SAP: cabecera en fila 1, datos desde fila 2
+    FRADE_FILA_CODIGOS = 2   # Listado de códigos: cabecera en fila 1, datos desde fila 2
+    FRADE_FILA_MAESTRO = 2   # Maestro clientes Workday: cabecera en fila 1, datos desde fila 2
+ 
+    def frade_norm_pedido(v):
+        if v is None or v == "":
+            return ""
+        try:
+            return str(int(float(v)))
+        except (ValueError, TypeError):
+            return str(v).strip()
+ 
+    def frade_norm_texto(v):
+        if v is None:
+            return ""
+        return re.sub(r'\s+', ' ', str(v)).strip().upper()
+ 
+    @st.cache_data(show_spinner="Cargando Datos SAP…")
+    def frade_cargar_sap(excel_bytes):
+        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=True)
+        ws = wb.active
+        mapa = {}
+        for fila in ws.iter_rows(min_row=FRADE_FILA_SAP, values_only=True):
+            pedido = frade_norm_pedido(fila[0] if len(fila) > 0 else None)
+            if not pedido or pedido in mapa:
+                continue
+            centro   = str(fila[1]).strip() if len(fila) > 1 and fila[1] is not None else ""
+            cliente  = str(fila[2]).strip() if len(fila) > 2 and fila[2] is not None else ""
+            nombre   = str(fila[3]).strip() if len(fila) > 3 and fila[3] is not None else ""
+            servicio = str(fila[4]).strip() if len(fila) > 4 and fila[4] is not None else ""
+            mapa[pedido] = (centro, cliente, nombre, servicio)
+        wb.close()
+        return mapa
+ 
+    @st.cache_data(show_spinner="Cargando Listado de códigos…")
+    def frade_cargar_codigos(excel_bytes):
+        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=True)
+        ws = wb.active
+        mapa = {}
+        for fila in ws.iter_rows(min_row=FRADE_FILA_CODIGOS, values_only=True):
+            cliente = str(fila[0]).strip() if len(fila) > 0 and fila[0] is not None else ""
+            if not cliente or cliente in mapa:
+                continue
+            nombre = str(fila[1]).strip() if len(fila) > 1 and fila[1] is not None else ""
+            cif    = str(fila[2]).strip() if len(fila) > 2 and fila[2] is not None else ""
+            mapa[cliente] = (nombre, cif)
+        wb.close()
+        return mapa
+ 
+    @st.cache_data(show_spinner="Cargando Maestro de clientes…")
+    def frade_cargar_maestro(excel_bytes):
+        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=True)
+        ws = wb.active
+        mapa = {}
+        for fila in ws.iter_rows(min_row=FRADE_FILA_MAESTRO, values_only=True):
+            if len(fila) < 11:
+                continue
+            cif        = fila[9]   # columna J = customer_cif
+            nombre_raw = fila[10]  # columna K = customer_name
+            nombre_n = frade_norm_texto(nombre_raw)
+            if not nombre_n or nombre_n in mapa:
+                continue
+            mapa[nombre_n] = (str(cif).strip() if cif is not None else "", str(nombre_raw).strip())
+        wb.close()
+        return mapa
+ 
+    def frade_xls_a_wb(xls_bytes):
+        """Convierte un .xls antiguo (xlrd) a un Workbook de openpyxl, copiando solo valores."""
+        libro = xlrd.open_workbook(file_contents=xls_bytes)
+        wb = Workbook()
+        wb.remove(wb.active)
+        for nombre_hoja in libro.sheet_names():
+            hoja_origen = libro.sheet_by_name(nombre_hoja)
+            hoja_destino = wb.create_sheet(title=nombre_hoja[:31])
+            for r in range(hoja_origen.nrows):
+                for c in range(hoja_origen.ncols):
+                    celda = hoja_origen.cell(r, c)
+                    valor = celda.value
+                    if celda.ctype == xlrd.XL_CELL_DATE:
+                        try:
+                            valor = dt.datetime(*xlrd.xldate_as_tuple(valor, libro.datemode))
+                        except Exception:
+                            pass
+                    elif celda.ctype == xlrd.XL_CELL_ERROR:
+                        valor = None
+                    elif valor == "":
+                        valor = None
+                    if valor is not None:
+                        hoja_destino.cell(row=r + 1, column=c + 1, value=valor)
+        return wb
+ 
+    def frade_buscar_hoja_datos(wb):
+        for nombre in wb.sheetnames:
+            if nombre.strip().upper() == "DATOS":
+                return wb[nombre]
+        return None
+ 
+    def frade_procesar_factura(nombre_archivo, contenido, mapa_sap, mapa_codigos, mapa_maestro, fila_inicio):
+        log = []
+        stats = {"pedidos": 0, "pedidos_ok": 0, "pedidos_sin_sap": 0,
+                 "cliente_por_codigo": 0, "cliente_por_maestro": 0, "cliente_no_encontrado": 0}
+ 
+        ext = nombre_archivo.rsplit(".", 1)[-1].lower() if "." in nombre_archivo else ""
+        if ext == "xls":
+            wb = frade_xls_a_wb(contenido)
+        else:
+            wb = openpyxl.load_workbook(io.BytesIO(contenido))
+ 
+        ws = frade_buscar_hoja_datos(wb)
+        if ws is None:
+            log.append(f'<span class="err">✗ {nombre_archivo} — no se encontró la hoja "DATOS"</span>')
+            return None, None, log, stats
+ 
+        # Cabeceras de las columnas nuevas (fila justo encima del inicio de datos)
+        fila_cabecera = fila_inicio - 1
+        cabeceras = {6: "Centro coste", 7: "CIF", 8: "Servicio",
+                     9: "Nombre cliente", 10: "Cliente maestro (fallback)"}
+        if fila_cabecera >= 1:
+            for col, texto in cabeceras.items():
+                celda = ws.cell(row=fila_cabecera, column=col)
+                if celda.value in (None, ""):
+                    celda.value = texto
+                    celda.font = Font(bold=True)
+ 
+        max_row = ws.max_row
+        for fila in range(fila_inicio, max_row + 1):
+            pedido_val = ws.cell(row=fila, column=3).value  # columna C
+            pedido = frade_norm_pedido(pedido_val)
+            if not pedido:
+                continue
+            stats["pedidos"] += 1
+ 
+            datos_sap = mapa_sap.get(pedido)
+            if not datos_sap:
+                stats["pedidos_sin_sap"] += 1
+                log.append(f'<span class="warn">⚠ {nombre_archivo} fila {fila} — pedido {pedido} no encontrado en Datos SAP</span>')
+                continue
+ 
+            centro, cliente, nombre_cliente, servicio = datos_sap
+            stats["pedidos_ok"] += 1
+            ws.cell(row=fila, column=6, value=centro)          # F — centro de coste
+            ws.cell(row=fila, column=8, value=servicio)        # H — nº de servicio
+            ws.cell(row=fila, column=9, value=nombre_cliente)  # I — nombre de cliente
+ 
+            datos_codigo = mapa_codigos.get(cliente)
+            if datos_codigo:
+                _, cif = datos_codigo
+                ws.cell(row=fila, column=7, value=cif)         # G — CIF (vía Listado códigos)
+                stats["cliente_por_codigo"] += 1
+            else:
+                datos_maestro = mapa_maestro.get(frade_norm_texto(nombre_cliente))
+                if datos_maestro:
+                    cif_maestro, nombre_maestro = datos_maestro
+                    ws.cell(row=fila, column=7, value=cif_maestro)      # G — CIF (vía Maestro clientes)
+                    ws.cell(row=fila, column=10, value=nombre_maestro)  # J — marca de fallback
+                    stats["cliente_por_maestro"] += 1
+                    log.append(f'<span class="info">ℹ {nombre_archivo} fila {fila} — cliente {cliente} no está en Listado códigos, '
+                               f'resuelto por nombre en Maestro clientes → {nombre_maestro}</span>')
+                else:
+                    stats["cliente_no_encontrado"] += 1
+                    log.append(f'<span class="warn">⚠ {nombre_archivo} fila {fila} — cliente {cliente} ({nombre_cliente}) '
+                               f'no encontrado ni en Listado códigos ni en Maestro clientes</span>')
+ 
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        stem = nombre_archivo.rsplit(".", 1)[0]
+        return stem + "_FRADE.xlsx", buf.read(), log, stats
+ 
+    # ── UI ──────────────────────────────────────────────────────────────────
+    st.markdown("<div class='block-label'>1 · Facturas (uno o varios)</div>", unsafe_allow_html=True)
+    facturas_frade = st.file_uploader("", type=["xls", "xlsx"], accept_multiple_files=True, key="facturas_frade", label_visibility="collapsed")
+    st.markdown("<div class='block-label'>2 · Datos SAP</div>", unsafe_allow_html=True)
+    sap_frade = st.file_uploader("", type=["xlsx"], key="sap_frade", label_visibility="collapsed")
+    st.markdown("<div class='block-label'>3 · Listado de códigos</div>", unsafe_allow_html=True)
+    codigos_frade = st.file_uploader("", type=["xlsx"], key="codigos_frade", label_visibility="collapsed")
+    st.markdown("<div class='block-label'>4 · Maestro clientes (Workday)</div>", unsafe_allow_html=True)
+    maestro_frade = st.file_uploader("", type=["xlsx"], key="maestro_frade", label_visibility="collapsed")
+    fila_inicio_frade = st.number_input("Fila de inicio de pedidos en Facturas (columna C)", min_value=1, value=4, key="fila_frade")
+    st.markdown("<hr>", unsafe_allow_html=True)
+ 
+    if st.button("▶ Procesar FRADE", use_container_width=True):
+        if not facturas_frade:
+            st.error("Sube al menos un fichero de Facturas.")
+        elif not sap_frade or not codigos_frade or not maestro_frade:
+            st.error("Sube los ficheros de Datos SAP, Listado de códigos y Maestro de clientes.")
+        else:
+            with st.spinner("Cargando ficheros de referencia…"):
+                mapa_sap     = frade_cargar_sap(sap_frade.read())
+                mapa_codigos = frade_cargar_codigos(codigos_frade.read())
+                mapa_maestro = frade_cargar_maestro(maestro_frade.read())
+            st.success(f"✅ Referencias cargadas — **{len(mapa_sap):,}** pedidos SAP · "
+                       f"**{len(mapa_codigos):,}** códigos · **{len(mapa_maestro):,}** clientes maestro")
+ 
+            stats_total = {"pedidos": 0, "pedidos_ok": 0, "pedidos_sin_sap": 0,
+                           "cliente_por_codigo": 0, "cliente_por_maestro": 0, "cliente_no_encontrado": 0}
+            log_lines = []
+            zip_buf = io.BytesIO()
+            prog = st.progress(0, text="Procesando…")
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for idx, f in enumerate(facturas_frade):
+                    prog.progress(idx / len(facturas_frade), text=f"Procesando {f.name}…")
+                    try:
+                        nombre_out, contenido_out, log, stats = frade_procesar_factura(
+                            f.name, f.read(), mapa_sap, mapa_codigos, mapa_maestro, int(fila_inicio_frade))
+                        log_lines.extend(log)
+                        if nombre_out:
+                            zf.writestr(nombre_out, contenido_out)
+                        for k in stats_total:
+                            stats_total[k] += stats.get(k, 0)
+                    except Exception as e:
+                        log_lines.append(f'<span class="err">✗ {f.name} — Error: {e}</span>')
+            prog.progress(1.0, text="¡Completado!")
+ 
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
+            for col, label, key in [
+                (c1, "Pedidos",         "pedidos"),
+                (c2, "Con SAP",         "pedidos_ok"),
+                (c3, "Sin SAP",         "pedidos_sin_sap"),
+                (c4, "CIF/código",      "cliente_por_codigo"),
+                (c5, "CIF/maestro",     "cliente_por_maestro"),
+                (c6, "Sin CIF",         "cliente_no_encontrado"),
+            ]:
+                col.markdown(f"<div class='stat-box'><div class='stat-num'>{stats_total[key]}</div>"
+                             f"<div class='stat-label'>{label}</div></div>", unsafe_allow_html=True)
+ 
+            st.markdown("<br><div class='block-label'>Log</div>", unsafe_allow_html=True)
+            st.markdown("<div class='log-box'>" + "<br>".join(log_lines) + "</div>", unsafe_allow_html=True)
+ 
+            zip_buf.seek(0)
+            st.download_button("⬇️ Descargar ZIP con facturas actualizadas", data=zip_buf.read(),
+                file_name="Facturas_FRADE.zip", mime="application/zip", use_container_width=True)
 
 # ===========================================================================
 # PANTALLA INICIAL
