@@ -3,3 +3,4 @@ pdfplumber
 openpyxl
 pypdf
 reportlab
+xlrd
